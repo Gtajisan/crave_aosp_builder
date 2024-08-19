@@ -30,6 +30,9 @@ on:
         description: "Command to initialize a different 'repo' project:"
         required: false
         default: "echo 'Build Starting!'"
+      BUILD_SCRIPT_URL:
+        description: "$ROM_URL"
+        required: false
       REMOVALS:
         description: "Folders to be removed before syncing:"
         required: false
