@@ -31,7 +31,7 @@ on:
         required: false
         default: "echo 'Build Starting!'"
       BUILD_SCRIPT_URL:
-        description: "$ROM_URL"
+        URL: ""
         required: false
       REMOVALS:
         description: "Folders to be removed before syncing:"
@@ -431,7 +431,7 @@ jobs:
            export CLEAN="clean"
         fi
 
-        crave run --no-patch --${CLEAN} "curl https://raw.githubusercontent.com/Gtajisan/build_scripts/Matrixx-14/script.sh | bash"
+        crave run --no-patch --${CLEAN} "curl $(URL) | bash"
       timeout-minutes: 960
 
       # Send Build 'status' notification (Success)
