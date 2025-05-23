@@ -62,67 +62,67 @@ jobs:
   prepare:
     name: Prepare for Building
     runs-on: ubuntu-latest
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ inputs.rom_name }}
+    runs-on: [self-hosted, linux, x86_64, rom-builder]
+    timeout-minutes: 6000 # 100 hours max
+
+    env:
+      ROM_DIR: /mnt/ssd/rom
+      CCACHE_DIR: /mnt/ssd/ccache
+      USE_CCACHE: 1
+      CCACHE_COMPRESS: 1
+      TZ: UTC
+
     steps:
-    - name: Check-out to repository
-      uses: actions/checkout@v4
+    # ========== SETUP ==========
+    - name: Validate runner
+      run: |
+        MIN_DISK=500
+        MIN_RAM=64
+        AVAIL_DISK=$(df -BG --output=avail . | tail -1 | tr -d 'G')
+        TOTAL_RAM=$(free -g | awk '/Mem:/ {print $2}')
+        
+        [ "$AVAIL_DISK" -ge "$MIN_DISK" ] || {
+          echo "::error::Need ${MIN_DISK}G disk, found ${AVAIL_DISK}G";
+          exit 1;
+        }
+        [ "$TOTAL_RAM" -ge "$MIN_RAM" ] || {
+          echo "::error::Need ${MIN_RAM}G RAM, found ${TOTAL_RAM}G";
+          exit 1;
+        }
+        echo "✓ Runner Validated (${TOTAL_RAM}G RAM, ${AVAIL_DISK}G disk)"
 
     - name: Install dependencies
       run: |
-        true # TODO: Add deps
+        sudo apt update
+        sudo DEBIAN_FRONTEND=noninteractive apt install -y \
+          bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
+          git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
+          lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev \
+          libxml2 libxml2-utils lzop maven pngcrush rsync schedtool \
+          squashfs-tools xsltproc zip zlib1g-dev repo jq android-sdk-libsparse-utils \
+          xmlstarlet
 
-    - name: Set Project variables
-      id: proj-variables
+        sudo ln -sf /usr/bin/python3 /usr/bin/python
+        git config --global user.name "ROM Builder"
+        git config --global user.email "builder@localhost"
+        git lfs install
+
+    - name: Initialize workspace
       run: |
-        case "${{ github.event.inputs.BASE_PROJECT }}" in
-        "ArrowOS 13.1")
-          export PROJECTFOLDER="/crave-devspaces/Arrow13"
-          export REPO_INIT="repo init -u https://github.com/ArrowOS/android_manifest.git -b arrow-13.1 --depth=1"
-        ;;
-        "DerpFest 14.0")
-          export PROJECTFOLDER="/crave-devspaces/DerpFest14"
-          export REPO_INIT="repo init -u https://github.com/DerpFest-AOSP/manifest.git -b 14 --depth=1"
-        ;;
-        "LineageOS 21.0")
-          export PROJECTFOLDER="/crave-devspaces/Lineage21"
-          export REPO_INIT="repo init -u https://github.com/LineageOS/android.git -b lineage-21.0 --git-lfs --depth=1"
-        ;;
-        "LineageOS 22.1")
-          export PROJECTFOLDER="/crave-devspaces/Lineage22"
-          export REPO_INIT="repo init -u https://github.com/accupara/los22.git -b lineage-22.1 --git-lfs --depth=1"
-        ;;
-        "LineageOS 20.0")
-          export PROJECTFOLDER="/crave-devspaces/Lineage20"
-          export REPO_INIT="repo init -u https://github.com/accupara/los20.git -b lineage-20.0 --git-lfs --depth=1"
-        ;;
-        "CipherOS 14")
-          export PROJECTFOLDER="/crave-devspaces/Cipher14"
-          export REPO_INIT="repo init -u https://github.com/CipherOS/android_manifest.git -b fourteen --git-lfs --depth=1"
-        ;;
-        "PixelOS 15")
-          export PROJECTFOLDER="/crave-devspaces/Pixel15"
-          export REPO_INIT="repo init -u https://github.com/PixelOS-AOSP/manifest.git -b fifteen --git-lfs --depth=1"
-        ;;
-        "RisingOS 15 Revived")
-          export PROJECTFOLDER="/crave-devspaces/Rising15"
-          export REPO_INIT="repo init -u https://github.com/RisingOS-Revived/android.git -b fifteen --git-lfs --depth=1"
-        ;;
-        "LineageOS 18.1")
-          export PROJECTFOLDER="/crave-devspaces/Lineage18"
-          export REPO_INIT="repo init -u https://github.com/accupara/los18.1.git -b lineage-18.1 --git-lfs --depth=1"
-        ;;
-        "LineageOS 16.0")
-          export PROJECTFOLDER="/crave-devspaces/Lineage16"
-          export REPO_INIT="repo init -u https://github.com/accupara/los16.git -b lineage-16.0 --git-lfs --depth=1"
-        ;;
-        "CyanogenMOD 14.1")
-          export PROJECTFOLDER="/crave-devspaces/Cyanogen14"
-          export REPO_INIT="repo init -u https://github.com/accupara/los-cm14.1.git -b cm-14.1 --git-lfs --depth=1"
-        ;;
-        "AOSP")
-          export PROJECTFOLDER="/crave-devspaces/AOSP"
-          export REPO_INIT="repo init -u https://android.googlesource.com/platform/manifest.git -b master --git-lfs --depth=1"
-        ;;
-        esac
+        mkdir -p "$ROM_DIR" "$CCACHE_DIR"
+        chmod -R 777 "$ROM_DIR" "$CCACHE_DIR"
+        ccache -M "${{ inputs.ccache_size }}"
+        ccache -o compression=true
+        ccache -z
+
 
         if [[ ${{ github.event.inputs.PRODUCT_NAME }} == *_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != gsi_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != sdk_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != *_sprout ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi439_* ]] && [[ ${{ github.event.inputs.PRODUCT_NAME }} != Mi8937_* ]]; then
           LUNCH="lunch ${{ github.event.inputs.PRODUCT_NAME }}-${{ github.event.inputs.BUILD_TYPE }}"
